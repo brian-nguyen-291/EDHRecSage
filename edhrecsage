@@ -1,0 +1,115 @@
+from bs4 import BeautifulSoup
+from requests_html import HTMLSession
+import sys
+import random
+import os
+
+
+# netdeck() retrieves the EDHRec "average deck" for a given commander
+# and returns either a .txt or .cod of the decklist given is_cockatrice
+def netdeck(commander, is_cockatrice):
+    commander_name = parse_commander(commander)
+    session = HTMLSession()
+    r = session.get("https://edhrec.com/decks/" + commander)
+    # Render Javascript to generate the proper page for the commander
+    r.html.render()
+
+    # Scrape div containing the decklist
+    decklist = r.html.xpath('//div[@class="well"]/text()')[1]
+
+    if not is_cockatrice:
+        txt_deckname = commander + ".txt"
+        with open(txt_deckname, "w") as file:
+            file.write(decklist)
+    else:
+        # Create list of the decklist i.e. ['1 cardname', '1 cardname', ...]
+        list_decklist = decklist.split("\n")
+
+        # Remove newlines from the list
+        while "" in list_decklist:
+            list_decklist.remove("")
+
+        # Create dictionary of the decklist from the list i.e. {'cardname': 'numofcard', ...}
+        # Note: range starts at 1 to intentionally exclude the commander
+        dict_decklist = \
+            {list_decklist[i].partition(" ")[2]: list_decklist[i].partition(" ")[0]
+             for i in range(1, len(list_decklist))}
+
+        cockatrice_list = create_cockatrice_format(dict_decklist, commander)
+        cod_deckname = commander + ".cod"
+        with open(cod_deckname, "w") as file:
+            file.write(cockatrice_list)
+
+
+# create_cockatrice_format() converts a dictionary'ed decklist into a Cockatrice decklist
+def create_cockatrice_format(dict_deck, commander_name):
+    header = ("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+              "<cockatrice_deck version=\"1\">\n"
+              "\t<deckname></deckname>\n"
+              "\t<comments></comments>\n"
+              "\t<zone name=\"main\">\n")
+
+    mainboard = ""
+    for card, count in dict_deck.items():
+        mainboard += "\t\t<card number=\"{count}\" name=\"{card}\"/>\n".format(count=count, card=card)
+
+    footer = ("\t</zone>\n"
+              "\t<zone name=\"side\">\n"
+              "\t\t<card number=\"1\" name=\"{}\"/>\n"
+              "\t</zone> \n"
+              "</cockatrice_deck>".format(commander_name))
+
+    return header + mainboard + footer
+
+
+# parse_commander() takes a commander name and converts it into its EDHRec route format
+def parse_commander(commander_name):
+    # Remove commas and apostrophes and replace spaces with hyphens
+    parsed_name = commander_name.replace(",", "").replace("'", "").replace(" ", "-").lower()
+    return parsed_name
+
+
+# fetch_commander_list() retrieves the list of legal commanders from Scryfall
+# Note: make_new uses a "cached" list if False and makes an API call if True
+def fetch_commander_list(make_new):
+    all_commanders = []
+
+    if make_new:
+        session = HTMLSession()
+        r = session.get('https://api.scryfall.com/cards/search?q=legal%3Acommander+is%3Acommander')
+        commanders = r.json()
+
+        while len(all_commanders) < commanders['total_cards']:
+            commander_page = [commander['name'] for commander in commanders['data']]
+            all_commanders += commander_page
+            if len(all_commanders) < commanders['total_cards']:
+                r = session.get(commanders['next_page'])
+                commanders = r.json()
+
+        with open("all_commanders.txt", "w") as file:
+            string_list_commanders = ""
+            for commander in all_commanders:
+                string_list_commanders += commander + "\n"
+            file.write(string_list_commanders)
+    else:
+        with open("all_commanders.txt", "r") as file:
+            all_commanders = file.read().splitlines()
+
+    return all_commanders
+
+
+# main() calls netdeck() using the first argument as the commander name
+# Note: assumes cockatrice decklist is desired
+def main(argv):
+    # Commander List updated as of 6/14/20
+    commander_list = fetch_commander_list(False)
+
+    if argv[0] == "Random":
+        random_commander = random.choice(commander_list)
+        netdeck(random_commander, True)
+    else:
+        netdeck(argv[0], True)
+
+
+if __name__ == "__main__":
+    main(sys.argv[1:])
