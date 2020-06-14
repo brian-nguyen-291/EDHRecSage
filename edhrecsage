@@ -10,7 +10,7 @@ import os
 def netdeck(commander, is_cockatrice):
     commander_name = parse_commander(commander)
     session = HTMLSession()
-    r = session.get("https://edhrec.com/decks/" + commander)
+    r = session.get("https://edhrec.com/decks/" + commander_name)
     # Render Javascript to generate the proper page for the commander
     r.html.render()
 
@@ -18,7 +18,7 @@ def netdeck(commander, is_cockatrice):
     decklist = r.html.xpath('//div[@class="well"]/text()')[1]
 
     if not is_cockatrice:
-        txt_deckname = commander + ".txt"
+        txt_deckname = commander_name + ".txt"
         with open(txt_deckname, "w") as file:
             file.write(decklist)
     else:
@@ -35,8 +35,14 @@ def netdeck(commander, is_cockatrice):
             {list_decklist[i].partition(" ")[2]: list_decklist[i].partition(" ")[0]
              for i in range(1, len(list_decklist))}
 
-        cockatrice_list = create_cockatrice_format(dict_decklist, commander)
-        cod_deckname = commander + ".cod"
+        # (Again) Remove flip-side text from flip commanders (should only happen for randomized commanders)
+        index_to_exclude = commander.find("//")
+        if index_to_exclude != -1:
+            parsed_name = commander[:index_to_exclude - 1]
+
+        # Create the string to use as the .cod decklist file
+        cockatrice_list = create_cockatrice_format(dict_decklist, parsed_name)
+        cod_deckname = commander_name + ".cod"
         with open(cod_deckname, "w") as file:
             file.write(cockatrice_list)
 
@@ -65,7 +71,13 @@ def create_cockatrice_format(dict_deck, commander_name):
 # parse_commander() takes a commander name and converts it into its EDHRec route format
 def parse_commander(commander_name):
     # Remove commas and apostrophes and replace spaces with hyphens
-    parsed_name = commander_name.replace(",", "").replace("'", "").replace(" ", "-").lower()
+    parsed_name = commander_name.lower().replace(",", "").replace("'", "").replace(" ", "-")
+
+    # Remove flip-side text from flip commanders (should only happen for randomized commanders)
+    index_to_exclude = parsed_name.find("//")
+    if index_to_exclude != -1:
+        parsed_name = parsed_name[:index_to_exclude - 1]
+
     return parsed_name
 
 
