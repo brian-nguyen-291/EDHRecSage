@@ -6,5 +6,9 @@ Requires:
  - requests-html (https://pypi.org/project/requests-html/)
  
 CLI Usage:
- - python ./edhrecsage Random
- - python ./edhrecsage Hogaak, Arisen Necropolis
+ - python ./edhrecsage "Random"
+ - python ./edhrecsage "Hogaak, Arisen Necropolis"
+ 
+ Output (in the same directory as the script):
+ - "maelstrom-wanderer.cod"
+ - "hogaak-arisen-necropolis.cod"
