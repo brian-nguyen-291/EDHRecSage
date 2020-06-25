@@ -39,6 +39,8 @@ def netdeck(commander, is_cockatrice):
         index_to_exclude = commander.find("//")
         if index_to_exclude != -1:
             parsed_name = commander[:index_to_exclude - 1]
+        else:
+            parsed_name = commander_name
 
         # Create the string to use as the .cod decklist file
         cockatrice_list = create_cockatrice_format(dict_decklist, parsed_name)
