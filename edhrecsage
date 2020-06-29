@@ -4,6 +4,21 @@ import sys
 import random
 import os
 
+RAV_GUILDS =\
+    {"Golgari": "BG", "Boros": "WR", "Selesnya": "WG",
+     "Rakdos": "BR", "Dimir": "BU", "Izzet": "RU",
+     "Gruul": "RG", "Simic": "GU", "Azorius": "UW",
+     "Orzhov": "WB"}
+KHANS_WEDGES =\
+    {"Jeskai": "RUW", "Mardu": "RWB", "Temur": "RGU", "Abzan": "BWG", "Sultai": "BUG"}
+ALARA_SHARDS =\
+    {"Jund": "BGR", "Esper": "WUB", "Naya": "RWG", "Grixis": "RBU", "Bant": "UWG"}
+COLORLESS = {"Colorless": "c"}
+COLORS = "WUBRG"
+ANY_POPULARITY = (1, 99999)
+HIGH_POPULARITY = (700, 99999)
+MEDIUM_POPULARITY = (100, 699)
+LOW_POPULARITY = (1, 99)
 
 # netdeck() retrieves the EDHRec "average deck" for a given commander
 # and returns either a .txt or .cod of the decklist given is_cockatrice
@@ -17,6 +32,11 @@ def netdeck(commander, is_cockatrice):
 
     # Scrape div containing the decklist
     decklist = r.html.xpath('//div[@class="well"]/text()')[1]
+
+    # Not enough deck data
+    if commander not in decklist:
+        print("Decklist may be incomplete due to lack of data")
+        decklist = r.html.xpath('//div[@class="well"]/text()')[2]
 
     if not is_cockatrice:
         txt_deckname = commander_name + ".txt"
@@ -113,18 +133,129 @@ def fetch_commander_list(make_new):
     return all_commanders
 
 
-# main() calls netdeck() using the first argument as the commander name
+# color_check() generates a list of commanders under a specific color identity
+def color_check(color):
+    session = HTMLSession()
+    nicknames = {}
+    list_commanders = []
+
+    # Create dictionary including all nicknames and colorless
+    for d in [RAV_GUILDS, KHANS_WEDGES, ALARA_SHARDS, COLORLESS]:
+        nicknames.update(d)
+    # If the CLI argument is one of these nicknames, use the corresponding letters
+    if color in nicknames:
+        # "color" is one of the known nicknames or colorless
+        color_letters = nicknames.get(color)
+    # If the CLI argument are the letter(s) themselves, parse the letters
+    else:
+        # Check if only the right letters are used (combinations of WUBRG)
+        if all(c in COLORS for c in color):
+            # Flip-flop between list, set, and list to eliminate duplicate letters
+            color_letters = ''.join(list(set(list(color))))
+        else:
+            raise ValueError("Color formatting incorrect. Combination of WUBRG, Colorless, or Pairing Nickname")
+
+    # Get list of commanders with given color identity
+    r = session.get('https://api.scryfall.com/cards/search?q=legal%3Acommander+is%3Acommander+color%3D'
+                    + color_letters + '+commander%3A' + color_letters)
+    commanders = r.json()
+
+    # Duplicate paging code from fetch_commander_list()
+    while len(list_commanders) < commanders['total_cards']:
+        commander_page = [commander['name'] for commander in commanders['data']]
+        list_commanders += commander_page
+        if len(list_commanders) < commanders['total_cards']:
+            r = session.get(commanders['next_page'])
+            commanders = r.json()
+
+    # Return the list of commanders under a certain color identity
+    return list_commanders
+
+
+# popularity_check() generates a name of a commander that fits a defined popularity bound (number of decks in EDHRec)
+def popularity_check(commander_list, popularity):
+    # initialize num_decks to an unrealistic number to emulate a do-while loop
+    num_decks = -1
+    search_time = 0
+
+    # Parse inputs for popularity
+    if popularity == "Low":
+        popularity = LOW_POPULARITY
+    elif popularity == "Medium":
+        popularity = MEDIUM_POPULARITY
+    elif popularity == "High":
+        popularity = HIGH_POPULARITY
+    elif popularity == "Any":
+        popularity = ANY_POPULARITY
+    else:
+        # Remove "(" and ")", split tuple by ",". Assume no space after the comma.
+        popularity = tuple(popularity.replace("(", "").replace(")", "").split(","))
+        popularity = (int(popularity[0]), int(popularity[1]))
+        if popularity[0] > popularity[1] or popularity[0] < 0 or popularity[1] < 0:
+            raise ValueError("Tuple formatting incorrect.")
+
+    # Will run at least once to generate a commander that fits the popularity bound.
+    while not (popularity[0] <= num_decks < popularity[1]):
+        print("Finding commander that fits the popularity bound...")
+        commander = random.choice(commander_list)
+        # Duplicated code from netdeck() to retrieve page data, this time for the number of decks.
+        commander_name = parse_commander(commander)
+        session = HTMLSession()
+        r = session.get("https://edhrec.com/decks/" + commander_name)
+        r.html.render()
+        num_decks = int(r.html.xpath('//div[@class="card__label"]/text()')[0].split()[0])
+
+        search_time += 1
+        if search_time > 10:
+            raise RuntimeError("Could not find commander within bounds in a reasonable amount of time.")
+
+    print("Commander found: " + commander)
+    return commander
+
+
+# main() calls netdeck() using the first argument as the commander name and allows customization if "Random".
+# Arguments:
+#    argv[0] - Commander Name as printed on the card. If it's "Random", gets a random commander.
+#    argv[1] - Color Identity. WUBRG, Colorless, Guild/Khans/Alara shards allowed.
+#    argv[2] - Deck Popularity. Format as High, Medium, Low, or Any (arbitrary cutoffs) or strict range tuple (x, y).
 # Note: assumes cockatrice decklist is desired
 def main(argv):
     # Commander List updated as of 6/14/20
     commander_list = fetch_commander_list(False)
 
-    if argv[0] == "Random":
-        # random_commander is full, unparsed version i.e. "Something, Adjective // Flippy Name"
-        random_commander = random.choice(commander_list)
-        netdeck(random_commander, True)
-    else:
-        netdeck(argv[0], True)
+    # Error handling for input
+    try:
+        # Commander name is as stated by the user, unless it's "Random".
+        commander = argv[0]
+
+        # Random case handling. Allows for further arguments for customization.
+        if argv[0] == "Random":
+            # If neither popularity nor color specified:
+            if len(argv) == 1:
+                # random commander is full, unparsed version i.e. "Something, Adjective // Flippy Name"
+                commander = random.choice(commander_list)
+                print("Random commander generated: " + commander)
+
+            # Otherwise parse color and popularity:
+            else:
+                color = argv[1]
+                # Call color_check() to get a commander list that jives with the color(s) named.
+                if not color == "Any":
+                    commander_list = color_check(color)
+
+                popularity = argv[2]
+                # Call popularity_check() to get a commander that jives with the popularity range.
+                commander = popularity_check(commander_list, popularity)
+
+    except IndexError:
+        print("CLI Argument formatting incorrect. " +
+              "Must have \"commander name\" at minimum and BOTH color and popularity specified if \"Random\".")
+        return
+
+    # Retrieve and export decklist for "commander"
+    print("Generating decklist...")
+    netdeck(commander, True)
+    print("Decklist generated for " + commander + "!")
 
 
 if __name__ == "__main__":
