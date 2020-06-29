@@ -8,6 +8,7 @@ import os
 # netdeck() retrieves the EDHRec "average deck" for a given commander
 # and returns either a .txt or .cod of the decklist given is_cockatrice
 def netdeck(commander, is_cockatrice):
+    # Parse commander name to create i.e. Something, Adjective -> something-adjective
     commander_name = parse_commander(commander)
     session = HTMLSession()
     r = session.get("https://edhrec.com/decks/" + commander_name)
@@ -40,7 +41,7 @@ def netdeck(commander, is_cockatrice):
         if index_to_exclude != -1:
             parsed_name = commander[:index_to_exclude - 1]
         else:
-            parsed_name = commander_name
+            parsed_name = commander
 
         # Create the string to use as the .cod decklist file
         cockatrice_list = create_cockatrice_format(dict_decklist, parsed_name)
@@ -119,6 +120,7 @@ def main(argv):
     commander_list = fetch_commander_list(False)
 
     if argv[0] == "Random":
+        # random_commander is full, unparsed version i.e. "Something, Adjective // Flippy Name"
         random_commander = random.choice(commander_list)
         netdeck(random_commander, True)
     else:
